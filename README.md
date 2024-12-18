@@ -13,7 +13,7 @@ MLX 是一个高性能和可操作性的机器学习框架，适合手头有M芯
 
 ---
 
-## MLX Framework Repository (English Version)
+## MLX Framework Repository
 
 ### Introduction
 This repository is dedicated to the MLX framework, collecting resources and documentation related to MLX. For detailed usage and advanced guidance, please refer to the following links:
