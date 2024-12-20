@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np
 import random
 import time
-import math
+import os
+import logging
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import mlx.core as mx
@@ -221,6 +223,10 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, co
 validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 # 使用 tokenizer 对文本进行处理
 tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+model_dir = Path('../../mlx_model')
+os.makedirs(model_dir) if not os.path.exists(model_dir)else ''
+# 记录在验证集上最好的准确率
+best_accuracy = 0
 
 # 定义优化器
 optimizer = Adam(learning_rate=lr)
@@ -240,6 +246,15 @@ def step(inputs, targets):
     optimizer.update(model, grads)
     return loss
 
+# 配置日志文件
+log_file = "training.log"
+logging.basicConfig(
+    filename=log_file,
+    filemode='w',  # 每次运行覆盖旧日志
+    level=logging.INFO,  # 设置日志记录等级
+    format='%(asctime)s - %(message)s',  # 日志格式
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 tic = time.perf_counter()
 # 开始训练
@@ -253,8 +268,8 @@ for epoch in range(epochs):
         if (i + 1) % log_per_step == 0:
             train_loss = np.mean(losses)
             toc = time.perf_counter()
-            print(
-                f"Epoch {epoch+1}/{epochs}, Step: {i+1}/{len(train_loader)}, "
+            logging.info(
+                f"Epoch {epoch + 1}/{epochs}, Step: {i + 1}/{len(train_loader)}, "
                 f"Train loss {train_loss:.3f}, "
                 f"It/sec {log_per_step / (toc - tic):.3f}"
             )
@@ -262,4 +277,26 @@ for epoch in range(epochs):
             losses = []
     # 一个epoch后，使用过验证集进行验证
     accuracy, validation_loss = validate()
-    print("Epoch {}, accuracy: {:.4f}, validation loss: {:.4f}".format(epoch+1, accuracy, validation_loss))
+    logging.info("Epoch {}, accuracy: {:.4f}, validation loss: {:.4f}".format(epoch+1, accuracy, validation_loss))
+    # 保存最好的模型
+    if accuracy > best_accuracy:
+        model.save(model, model_dir / f"model_best.npz")
+        best_accuracy = accuracy
+
+# 加载最好的模型，然后进行测试集的预测
+model.load(os.path.join(model_dir, "model_best.npz"))
+model.eval()
+test_dataset = MyDataset('test')
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+results = []
+for i, (inputs, ids) in enumerate(test_loader):
+    logits = model(inputs)
+    outputs = (logits >= 0.5).int().reshape(-1).tolist()
+    ids = ids.tolist()
+    results = results + [(id, result) for result, id in zip(outputs, ids)]
+
+test_label = [pair[1] for pair in results]
+data = Data()
+data.test['label'] = test_label
+data.test['Keywords'] = data.test['title'].fillna('')
+data.test[['uuid', 'Keywords', 'label']].to_csv('submit_task1.csv', index=None)
