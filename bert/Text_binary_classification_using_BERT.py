@@ -3,6 +3,7 @@ import numpy as np
 import random
 import time
 import math
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import mlx.core as mx
 import mlx.nn as nn
@@ -10,13 +11,13 @@ from mlx.nn import Sequential, Linear, ReLU, Sigmoid
 from mlx.nn.losses import binary_cross_entropy
 from mlx.optimizers import Adam
 from transformers import AutoTokenizer, AutoConfig  # 分词器
-from model.bert_by_mlx import Bert
+from mlx_bert import Bert
 
 
 class Data:
     def __init__(self):
-        self.train_path = 'data/data_set/train.csv'
-        self.test_path = 'data/data_set/testB.csv'
+        self.train_path = '../data_set/train.csv'
+        self.test_path = '../data_set/testB.csv'
         self.train = None
         self.test = None
         self.validate = None
@@ -77,7 +78,7 @@ class MyDataset:
 
 
 class DataLoader:
-    def __init__(self, dataset, batch_size=32, shuffle=True, collate_fn=None):
+    def __init__(self, dataset, batch_size=32, shuffle=True, collate_fn=None, num_workers=8):
         """
         初始化 DataLoader
         :param dataset: 自定义数据集对象，必须实现 __getitem__ 和 __len__
@@ -89,6 +90,7 @@ class DataLoader:
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.collate_fn = collate_fn
+        self.num_workers = num_workers
 
     def __iter__(self):
         """
@@ -112,8 +114,9 @@ class DataLoader:
         batch_indices = self.indices[self.current_idx:self.current_idx + self.batch_size]
         self.current_idx += self.batch_size
 
-        # 根据索引提取数据
-        batch = [self.dataset[i] for i in batch_indices]
+        # 多线程加载数据
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            batch = list(executor.map(lambda i: self.dataset[i], batch_indices))
 
         # 使用 collate_fn 处理批量数据（如果提供了）
         if self.collate_fn:
@@ -138,8 +141,6 @@ def collate_fn(batch):
     text, label = zip(*batch)
     text, label = list(text), list(label)
 
-    # 使用 tokenizer 对文本进行处理
-    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     # padding='max_length' 不够长度的进行填充，truncation=True 长度过长的进行裁剪
     text_max_length = 128  # 设定最大文本长度
     # 返回字典格式的输出
@@ -218,6 +219,8 @@ train_dataset = MyDataset('train')
 validation_dataset = MyDataset('validation')
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
 validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+# 使用 tokenizer 对文本进行处理
+tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
 # 定义优化器
 optimizer = Adam(learning_rate=lr)
